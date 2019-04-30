@@ -18,8 +18,6 @@ from subprocess import PIPE, Popen
 import requests
 from requests.exceptions import ReadTimeout
 
-from cmstfc import tfc_lfn2pfn
-
 DEBUG_FLAG = False
 DEFAULT_DASGOCLIENT = '/usr/bin/dasgoclient'
 
@@ -31,10 +29,8 @@ DATASVC_URL_FORMAT = '%s/json/%s/%s?%s'
 
 GSIFTP_SCHEME = re.compile(r'(gsiftp)://(.+?):?(\d+)?/?(/.*)')
 SRM_SCHEME = re.compile(r'(srm)://(.+?):(\d+)?(.*=)?(/.*)')
-XROOTD_SCHEME = re.compile(r'(root)://(.+?):?(\d+)?/?(/.*)')
 GSIFTP_DEFAULT_PORT = '2811'
 SRM_DEFAULT_PORT = '8446'
-XROOTD_DEFAULT_PORT = '1095'
 
 DEFAULT_PROTOCOL = 'srmv2'
 
@@ -304,14 +300,14 @@ class PhEDEx(object):
         return subs
 
     @staticmethod
-    def tfc_from_xml(xmlfile):
+    def tfc_from_xml(pnn):
         """
         Get the tfc from an xml file
         """
-        
+
         tfc = []
 
-        xml = ET.parse(xmlfile)
+        xml = ET.parse(pnn)
 
         for rule in xml.getroot():
             rule_dict = rule.__dict__['attrib']
@@ -399,14 +395,12 @@ class PhEDEx(object):
         req = self.datasvc('senames', parameters)
         return req['phedex']['senames']
 
-    def seinfo(self, pnn, protocol=DEFAULT_PROTOCOL, probes=DEFAULT_PROBE_LFNS, tfc=None):
+    def seinfo(self, pnn, protocol=DEFAULT_PROTOCOL, probes=DEFAULT_PROBE_LFNS):
         """
         Uses lfn2pfn, probes a pnn with some lfns and gets informations about the se.
         :pnn:       phedex node name.
         :protocol:  protocol. default is DEFAULT_PROTOCOL
         :probes:    list of files to use to probe the se. default is DEFAULT_PROBE_LFNS.
-        :tfc:       use this tfc instead of datasvc to perform lfn2pfn. Can be a json or
-                    a path to an xml file
 
         return:    {protocol: <protocol>, hostname: <hostname>,
                     port: <port>, webpath: <webpath>, prefix: <prefix>}
@@ -417,7 +411,7 @@ class PhEDEx(object):
         seinfo = None
         for probe in probes:
             res = self.lfn2pfn(lfn=probe, pnn=pnn, protocol=protocol,
-                               details=True, tfc=tfc)
+                               details=True)
 
             # remove useless keys
             for key in ['pfn', 'path']:
@@ -432,7 +426,8 @@ class PhEDEx(object):
 
         return seinfo
 
-    def lfn2pfn(self, lfn, pnn, protocol=DEFAULT_PROTOCOL, details=False, tfc=None):
+
+    def lfn2pfn(self, lfn, pnn, protocol=DEFAULT_PROTOCOL, details=False):
         """
         Wraps the lfn2pfn datasvc call
         :lfn:      logical file name
@@ -442,28 +437,19 @@ class PhEDEx(object):
                    an attempted matching of the pfn: protocol, hostname, port
                    webpath, path, prefix. Some of these fields may be None for
                    some schemes. Default False
-        :tfc:      tfc to be used instead of calling datasvc. Can be a json string
-                   or a path to an xml file
 
         return:    the pfn or a dictionnary with the details.
                    {pfn: <pfn>, protocol: <protocol>, hostname: <hostname>,
                     port: <port>, webpath: <webpath>, path: <path>,
                     prefix: <prefix>}
         """
-        logging.debug('phedex.lfn2pfn: pnn=%s, lfn=%s, protocol=%s, details=%s, tfc=%s',
-                      pnn, lfn, protocol, details, tfc)
+        logging.debug('phedex.lfn2pfn: pnn=%s, lfn=%s, protocol=%s, details=%s',
+                      pnn, lfn, protocol, details)
 
-        if tfc is None:
-            req = self.datasvc('lfn2pfn', {'node': pnn,
-                                           'protocol': protocol,
-                                           'lfn': lfn})
-            pfn = req['phedex']['mapping'][0]['pfn']
-        else:
-            if tfc[0] == '/':
-                tfc_dict = self.tfc(tfc, dump=False, proto=protocol)
-            else:
-                tfc_dict = tfc
-            pfn = tfc_lfn2pfn(lfn, tfc_dict, protocol)
+        req = self.datasvc('lfn2pfn', {'node': pnn,
+                                       'protocol': protocol,
+                                       'lfn': lfn})
+        pfn = req['phedex']['mapping'][0]['pfn']
 
         if not details:
             return pfn
@@ -479,13 +465,6 @@ class PhEDEx(object):
                 GSIFTP_SCHEME.match(pfn).groups()
             port = port or GSIFTP_DEFAULT_PORT
             webpath = None
-
-        elif XROOTD_SCHEME.match(pfn):
-            (protocol, hostname, port, path) =\
-                XROOTD_SCHEME.match(pfn).groups()
-            port = port or XROOTD_DEFAULT_PORT
-            webpath = None
-
         else:
             raise Exception("lfn2pfn: No schema matched. Aborting.")
 
@@ -661,8 +640,7 @@ if __name__ == '__main__':
                         help='exclusive regexp.')
     PARSER.add_argument('--normalize', dest='normalize', default=None,
                         help='SE info for normalizing the tfc.')
-    PARSER.add_argument('--tfc', dest='tfc', default=None,
-                        help='tfc to be used instead of datasvc.')
+
 
 
     OPTIONS = PARSER.parse_args()
@@ -773,7 +751,7 @@ if __name__ == '__main__':
             print("Function 'lfn2pfn' requires the --pnn parameter")
         else:
             print(PCLI.seinfo(pnn=opts.pnn, protocol=opts.protocol,
-                              probes=opts.probes, tfc=opts.tfc))
+                              probes=opts.probes))
 
     def flfn2pfn(opts):
         """
@@ -783,7 +761,7 @@ if __name__ == '__main__':
             print("Function 'lfn2pfn' requires the --pnn and --lfn parameters")
         else:
             print(PCLI.lfn2pfn(lfn=opts.lfn, pnn=opts.pnn, protocol=opts.protocol,
-                               details=opts.details, tfc=opts.tfc))
+                               details=opts.details))
 
     def ffts(opts):
         """

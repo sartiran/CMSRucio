@@ -67,7 +67,7 @@ class CMSRSE(object):
     def __init__(self, pnn, account, auth_type=None, rsetype=DEFAULT_RSETYPE, suffix=None,
                  dry=False, fts=None, tier=None, lfn2pfn_algorithm=None, country=None,
                  attrs=None, seinfo=None, tfc=None, tfc_exclude=EXCLUDE_TFC, domains=None,
-                 space_token=None, add_prefix=None, proto=DEFAULT_PROTOCOL,
+                 space_token=None, add_prefix=None,
                  instance=DEFAULT_PHEDEX_INST, dasgoclient=DEFAULT_DASGOCLIENT,
                  datasvc=DEFAULT_DATASVC_URL):
 
@@ -81,13 +81,9 @@ class CMSRSE(object):
         self.suffix = suffix
         self.rsename = pnn + self.suffix
 
-        if tfc and os.path.isdir(tfc):
-            self.tfc = tfc + '/' + pnn + '/PhEDEx/storage.xml'
-        else:
-            self.tfc = tfc
-
         self.pcli = PhEDEx(instance=instance, dasgoclient=dasgoclient, datasvc=datasvc)
         self.rcli = Client(account=account, auth_type=auth_type)
+
 
         self.dry = dry
 
@@ -95,7 +91,7 @@ class CMSRSE(object):
 
         self._get_settings()
 
-        self._get_protocol(seinfo, add_prefix, tfc_exclude, domains, space_token, proto)
+        self._get_protocol(seinfo, add_prefix, tfc, tfc_exclude, domains, space_token)
 
 
     def _get_attributes(self, fts, tier, lfn2pfn_algorithm, country, xattrs):
@@ -146,8 +142,7 @@ class CMSRSE(object):
             if key not in rattrs or rattrs[key] != value:
                 # Hack. I can find no way to define an attribute to 1
                 # (systematically reinterpreted as True)
-                if key in rattrs and rattrs[key] is True and \
-                    (str(value) == '1' or str(value) == 'True'):
+                if key in rattrs and rattrs[key] is True and str(value) == '1':
                     continue
 
                 if key not in rattrs:
@@ -189,15 +184,12 @@ class CMSRSE(object):
             if 'web_service_path' in self.proto['extended_attributes']:
                 pfn = pfn + self.proto['extended_attributes']['web_service_path']
 
-
             pfn = pfn + '/' + cmstfc('cms', lfn, None, None, self.proto)
 
             # this should match dataservice pfn, modulo some normalization
             # (e.g.: adding the port number)
             pfn_datasvc = []
-            pfn_datasvc.append(self.pcli.lfn2pfn(
-                pnn=self.pnn, lfn=lfn, tfc=self.tfc,
-                protocol=self.proto['extended_attributes']['tfc_proto']))
+            pfn_datasvc.append(self.pcli.lfn2pfn(pnn=self.pnn, lfn=lfn))
             pfn_datasvc.append(pfn_datasvc[0].replace(
                 self.proto['hostname'],
                 self.proto['hostname'] + ':' + str(self.proto['port'])
@@ -210,7 +202,7 @@ class CMSRSE(object):
             logging.debug("checking lfn2pfn ok %s", pfn)
 
 
-    def _get_protocol(self, seinfo, add_prefix, exclude, domains, token, proto):
+    def _get_protocol(self, seinfo, add_prefix, tfc, exclude, domains, token):
         """
         Get the informations about the RSE protocol from creator argument or
         from phedex
@@ -223,22 +215,11 @@ class CMSRSE(object):
         :exclude:     rules to be excluded from tfc (in case it is gathered from PhEDEx).
         :domains:     domains dictionnary. If none the DOMAINS_BYTYPE constant is used.
         :token:       space token. default None
-        :proto:       protocol to be considered. default DEFAULT_PROTOCOL.
         """
 
+        seinfo = seinfo or self.pcli.seinfo(pnn=self.pnn, probes=SE_PROBES_BYTYPE[self.rsetype])
 
-        seinfo = seinfo or self.pcli.seinfo(pnn=self.pnn, probes=SE_PROBES_BYTYPE[self.rsetype],
-                                            protocol=proto, tfc=self.tfc)
-
-        if self.tfc is not None and self.tfc[0] == '/':
-            pnn_arg = self.tfc
-            self.tfc = None
-        else:
-            pnn_arg = self.pnn
-
-        self.tfc = self.tfc or self.pcli.tfc(
-            pnn=pnn_arg, dump=False,
-            exclude=exclude, normalize=seinfo, proto=proto)
+        tfc = tfc or self.pcli.tfc(pnn=self.pnn, dump=False, exclude=exclude, normalize=seinfo)
 
         domains = domains or DOMAINS_BYTYPE[self.rsetype]
 
@@ -255,8 +236,8 @@ class CMSRSE(object):
 
         if self.attrs['lfn2pfn_algorithm'] == 'cmstfc':
             self.proto['prefix'] = '/'
-            self.proto['extended_attributes']['tfc_proto'] = proto
-            self.proto['extended_attributes']['tfc'] = self.tfc
+            self.proto['extended_attributes']['tfc_proto'] = DEFAULT_PROTOCOL
+            self.proto['extended_attributes']['tfc'] = tfc
             self._check_lfn2pfn()
         else:
             self.proto['prefix'] = seinfo['prefix']
@@ -277,18 +258,9 @@ class CMSRSE(object):
 
     def _set_protocol(self):
         try:
-            rprotos = self.rcli.get_protocols(
-                rse=self.rsename
-            )
+            rproto = self.rcli.get_protocols(rse=self.rsename)[0]
         except (RSEProtocolNotSupported, RSENotFound):
-            rprotos = []
-
-        rproto = {}
-
-        for item in rprotos:
-            if item['scheme'] == self.proto['scheme']:
-                rproto = item
-                break
+            rproto = {}
 
         update = False
         if self.proto != rproto:
@@ -383,16 +355,13 @@ if __name__ == '__main__':
     PARSER.add_argument('--seinfo', dest='seinfo', default=None,
                         help='SE informations. If missing, taken from PhEDEx.')
     PARSER.add_argument('--tfc', dest='tfc', default=None,
-                        help='TFC rules. If missing, taken from PhEDEx.\
-                        It can be also the path to a xml file or to the SITECONF dir.')
+                        help='TFC ruless. If missing, taken from PhEDEx.')
     PARSER.add_argument('--domains', dest='domains', default=None,
                         help='RSE domains. If missing, inferred by the RSE type.')
     PARSER.add_argument('--account', dest='account', default=os.environ['RUCIO_ACCOUNT'],
                         help='Rucio accoun. default RUCIO_ACCOUNT')
     PARSER.add_argument('--space_token', dest='token', default=None,
                         help='Space Token. default None')
-    PARSER.add_argument('--proto', dest='proto', default=DEFAULT_PROTOCOL,
-                        help='Protocol. default %s' % DEFAULT_PROTOCOL)
     PARSER.add_argument('--tfc_exclude', dest='tfc_exclude', default=EXCLUDE_TFC,
                         help='Regexp for rule paths to be excluded from TFC. default %s'
                         % EXCLUDE_TFC)
@@ -432,7 +401,7 @@ if __name__ == '__main__':
                 lfn2pfn_algorithm=OPTIONS.lfn2pfn, country=OPTIONS.country,
                 seinfo=OPTIONS.seinfo, tfc=OPTIONS.tfc, domains=OPTIONS.domains,
                 attrs=OPTIONS.attrs, space_token=OPTIONS.token, tfc_exclude=OPTIONS.tfc_exclude,
-                instance=OPTIONS.instance, dasgoclient=OPTIONS.dasgoclient, proto=OPTIONS.proto
+                instance=OPTIONS.instance, dasgoclient=OPTIONS.dasgoclient
             )
             if RSE.update():
                 logging.warning('RSE %s corresponding to pnn %s and type %s changed',

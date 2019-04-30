@@ -193,12 +193,15 @@ class CMSRucioDatasetReplica(object):
         :dry:  Drydrun. default false
         """
 
-        logging.notice('Updating replicas for %s:%s at %s' % (self.scope, self.dataset, self.rse))
-
-        replicas = self.rcli.list_replicas([{'scope': self.scope, 'name': self.dataset}],
-                                           rse_expression='rse=%s' % self.rse)
-
-        rrepl = [repl['name'] for repl in replicas]
+        try:
+            rrepl = [repl['name'] for repl in self.rcli.list_replicas([{
+                'scope': self.scope,
+                'name': self.dataset
+            }], rse_expression='rse=%s' % self.rse)]
+        # looks like list_replicas, when no replicas are there, returns an iterator
+        # with 1 element (one empty string)
+        except TypeError:
+            rrepl = []
 
         prepl = [repl for repl in self.replicas.keys()]
 

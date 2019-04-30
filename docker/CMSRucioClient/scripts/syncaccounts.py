@@ -9,7 +9,7 @@ import os
 import re
 
 from rucio.client.client import Client
-from rucio.common.exception import AccountNotFound, DatabaseException, Duplicate
+from rucio.common.exception import AccountNotFound
 
 SYNC_ACCOUNT_FMT = 'sync_%s'
 
@@ -61,17 +61,13 @@ class SyncAccounts(object):
             logging.info('creating account %s. Dry run',
                          account)
         elif missing:
-            try:
-                self.rcli.add_account(
-                    account=account,
-                    type='USER',
-                    email=None
-                )
-                logging.debug('created account %s',
-                              account)
-            except DatabaseException:
-                logging.warn('Could not create account %s',
-                              account)
+            self.rcli.add_account(
+                account=account,
+                type='USER',
+                email=None
+            )
+            logging.debug('created account %s',
+                          account)
 
         return missing
 
@@ -79,10 +75,8 @@ class SyncAccounts(object):
 
         attrs = list(self.rcli.list_account_attributes(account))[0]
         attr = {u'key': u'admin', u'value': u'true'}
-        # depending on rucio version also this can be a return value
-        attr_alt = {u'key': u'admin', u'value': True}
 
-        missing = (attr not in attrs) and (attr_alt not in attrs)
+        missing = attr not in attrs
 
         if missing and dry:
             logging.info('setting attribute for account %s. Dry run',
@@ -101,18 +95,23 @@ class SyncAccounts(object):
     def _add_identity(self, account, dry=False):
 
         identities = list(self.rcli.list_identities(account=account))
+
         idmissing = self.identity not in identities
 
         if idmissing and dry:
-            logging.info('adding %s for account %s. Dry run', self.identity, account)
+            logging.info('adding %s for account %s. Dry run',
+                         self.identity, account)
+
         elif idmissing:
-            try:
-                self.rcli.add_identity(account=account, identity=self.identity['identity'],
-                                       authtype=self.identity['type'], email=None)
-                logging.debug('added %s for account %s', self.identity, account)
-            except Duplicate:  # Sometimes idmissing doesn't seem to work
-                logging.warn('identity %s for account %s existed', self.identity, account)
-                return False
+            self.rcli.add_identity(
+                account=account,
+                identity=self.identity['identity'],
+                authtype=self.identity['type'],
+                email=None
+            )
+            logging.debug('added %s for account %s.',
+                          self.identity, account)
+
         return idmissing
 
     def update(self, dry=False):
@@ -128,7 +127,6 @@ class SyncAccounts(object):
         }
 
         for account in self.accounts:
-            logging.debug("Considering %s", account)
             stat['tot'].append(account)
 
             created = self._create_account(account, dry)
@@ -140,17 +138,11 @@ class SyncAccounts(object):
                 stat['identity'].append(account)
 
             else:
-                try:
-                    logging.debug("Adding attribute to %s", account)
+                if self._add_account_attr(account, dry):
+                    stat['attribute'].append(account)
 
-                    if self._add_account_attr(account, dry):
-                        stat['attribute'].append(account)
-                    logging.debug("Adding identity to %s", account)
-
-                    if self._add_identity(account, dry):
-                        stat['identity'].append(account)
-                except AccountNotFound:
-                    logging.warn('Attributes and identiy not added')
+                if self._add_identity(account, dry):
+                    stat['identity'].append(account)
 
         return stat
 
@@ -191,8 +183,6 @@ if __name__ == '__main__':
         IDENTITY = {'from': OPTIONS.fromaccount}
     else:
         IDENTITY = None
-
-    logging.info("Adding %s to accounts", IDENTITY)
 
     RESULT = SyncAccounts(
         rses=OPTIONS.rse,

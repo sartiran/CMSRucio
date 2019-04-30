@@ -12,7 +12,7 @@ import argparse
 from gfal2 import Gfal2Context, GError
 from rucio.client.replicaclient import ReplicaClient
 import rucio.rse.rsemanager as rsemgr
-
+from rucio.client.rseclient import RSEClient
 
 PARSER = argparse.ArgumentParser(
     description="register_file: register an existing file on options['rse']"
@@ -20,6 +20,8 @@ PARSER = argparse.ArgumentParser(
 PARSER.add_argument('--scope', dest='scope', help='scope of the file.', required=True)
 PARSER.add_argument('--name', dest='name', help='DID of the file.', required=True)
 PARSER.add_argument('--rse', dest='rse', help='RSE where the replica is.', required=True)
+PARSER.add_argument('--pfn', dest='pfn', help='PFN of the file.', required=False)
+PARSER.add_argument('--nocheck', dest='check', help='Do not check if the file exists on disk.',  action='store_false', required=False)
 
 OPTIONS = PARSER.parse_args()
 
@@ -28,15 +30,19 @@ RSE = rsemgr.get_rse_info(OPTIONS.rse)
 # Use the first protocol
 PROTO = RSE['protocols'][0]
 
+if not OPTIONS.pfn:
 # Get the replica url
-SCHEMA = PROTO['scheme']
-PREFIX = PROTO['prefix'] + '/' + OPTIONS.scope.replace('.', '/')
-if SCHEMA == 'srm':
-    PREFIX = PROTO['extended_attributes']['web_service_path'] + PREFIX
-URL = SCHEMA + '://' + PROTO['hostname']
-if PROTO['port'] != 0:
-    URL = URL + ':' + str(PROTO['port'])
-URL = URL + PREFIX + '/' + OPTIONS.name
+##SCHEMA = PROTO['scheme']
+##PREFIX = PROTO['prefix'] + '/' + OPTIONS.scope.replace('.', '/')
+##if SCHEMA == 'srm':
+##    PREFIX = PROTO['extended_attributes']['web_service_path'] + PREFIX
+##URL = SCHEMA + '://' + PROTO['hostname']
+##if PROTO['port'] != 0:
+##    URL = URL + ':' + str(PROTO['port'])
+##URL = URL + PREFIX + '/' + OPTIONS.name
+    URL = RSEClient().lfns2pfns(OPTIONS.rse, [OPTIONS.name], scheme='cms')
+else:
+    URL = OPTIONS.pfn
 
 GFAL = Gfal2Context()
 
@@ -66,7 +72,7 @@ REPLICA = [{
     'name' : OPTIONS.name,
     'adler32': CHECKSUM,
     'bytes': SIZE,
-    'pfn': URL
+#    'pfn': URL
 }]
 
 R.add_replicas(rse=OPTIONS.rse, files=REPLICA)

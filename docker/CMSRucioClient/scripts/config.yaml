@@ -1,0 +1,39 @@
+#Test comment
+main:
+    pool: 5
+    sleep: 120
+    verbosity: NOTICE
+    run: False
+
+# Default site conf
+default:
+    pool: 1
+    chunck: 100
+#    dry: True
+    verbosity: NOTICE
+    block_verbosity: NOTICE
+
+# List of sites
+T2_FR_GRIF_LLR:
+    pool: 1
+
+T2_FR_GRIF_IRFU:
+    pool: 1
+
+T2_FR_IPHC:
+    pool: 1
+#    multi_das_calls: True
+
+T2_FR_CCIN2P3:
+    pool: 1
+
+T3_FR_IPNL:
+    pool: 1
+
+T1_FR_CCIN2P3_Buffer:
+    pool: 10
+    multi_das_calls: True
+    run: False
+
+#T1_UK_RAL_Disk:
+#    pool: 10
